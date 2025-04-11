@@ -1,3 +1,4 @@
+
 import { FoodItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
@@ -339,16 +340,25 @@ export async function scanBarcodeFromImage(imageFile: File): Promise<FoodItem | 
       }
 
       const result = await response.json();
+      console.log("Barcode API result:", result);
+      
+      // Create nutritional values (either from API or defaults)
+      const nutrition = result.nutrition_facts || {
+        calories: 100,
+        protein: 0,
+        carbohydrates: 0,
+        fat: 0
+      };
       
       // Process the barcode result from the Open Food Facts API
       return {
         id: uuidv4(),
         name: result.product_name || "Unknown Product",
         portion: "100g",
-        calories: result.nutrition_facts?.calories || 100,
-        protein: result.nutrition_facts?.protein || 0,
-        carbs: result.nutrition_facts?.carbohydrates || 0,
-        fat: result.nutrition_facts?.fat || 0,
+        calories: nutrition.calories || 100,
+        protein: nutrition.protein || 0,
+        carbs: nutrition.carbohydrates || 0,
+        fat: nutrition.fat || 0,
         image: undefined
       };
     } catch (error) {
