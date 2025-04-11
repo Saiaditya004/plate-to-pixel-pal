@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 
 // Mock database for food nutrition information (converted from nutrition_db.py)
-const NUTRITION_DB: Record<string, { calories: number; protein: number; carbohydrates: number; fats: number; weight: number }> = {
+const NUTRITION_DB = {
   "AlooGobi": {
     "calories": 172,
     "protein": 4.3,
@@ -233,8 +233,13 @@ function getNutritionInfo(foodItem: string) {
   return CASE_INSENSITIVE_DB[foodItem.toLowerCase()] || null;
 }
 
+// Backend API endpoints
+const API_BASE_URL = 'http://localhost:5000'; // Update this if your Flask server runs on a different port
+const PREDICT_ENDPOINT = `${API_BASE_URL}/predict`;
+const BARCODE_ENDPOINT = `${API_BASE_URL}/upload`;
+
 /**
- * Analyze food from an image using the Roboflow API directly from the frontend
+ * Analyze food from an image using the backend API
  */
 export async function analyzeFoodFromImage(imageFile: File): Promise<{
   detectedItems: FoodItem[];
@@ -245,9 +250,127 @@ export async function analyzeFoodFromImage(imageFile: File): Promise<{
     const formData = new FormData();
     formData.append('image', imageFile);
 
-    // In a real app, we would send this to our backend endpoint
-    // For this implementation, we'll simulate the API call
-    
+    toast.info("Analyzing image with AI...");
+
+    try {
+      // Send the image to our backend API
+      const response = await fetch(PREDICT_ENDPOINT, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // Transform predictions into FoodItem objects
+      const detectedItems: FoodItem[] = [];
+      
+      if (result.predictions && result.predictions.length > 0) {
+        // Process predictions from the IndianFoodNet model
+        const prediction = result.predictions[0]; // Get the top prediction
+        const foodClass = prediction.class;
+        const confidence = prediction.confidence;
+        const nutritionInfo = result.nutrition || getNutritionInfo(foodClass);
+        
+        if (nutritionInfo) {
+          detectedItems.push({
+            id: uuidv4(),
+            name: foodClass,
+            portion: `${nutritionInfo.weight || 100}g`,
+            calories: nutritionInfo.calories || 100,
+            protein: nutritionInfo.protein || 2,
+            carbs: nutritionInfo.carbohydrates || 15,
+            fat: nutritionInfo.fats || 5,
+            confidence: confidence,
+            image: undefined
+          });
+        }
+      }
+
+      // Generate a summary
+      const itemNames = detectedItems.map(item => item.name).join(', ');
+      const totalCalories = detectedItems.reduce((sum, item) => sum + item.calories, 0);
+      
+      const aiSummary = detectedItems.length > 0
+        ? `I detected ${detectedItems.length} item${detectedItems.length > 1 ? 's' : ''}: ${itemNames}. This meal contains approximately ${totalCalories} calories.`
+        : "I couldn't identify any food items in this image. Please try again with a clearer photo.";
+
+      return { detectedItems, aiSummary };
+    } catch (error) {
+      console.error('Backend API error:', error);
+      
+      // Fallback to mock implementation if the server is not available
+      toast.error("Couldn't connect to the backend server. Using fallback mode.");
+      return fallbackAnalyzeFoodFromImage(imageFile);
+    }
+  } catch (error) {
+    console.error('Error analyzing food image:', error);
+    throw new Error('Failed to analyze food image');
+  }
+}
+
+/**
+ * Scan barcode from image and get product information using the backend API
+ */
+export async function scanBarcodeFromImage(imageFile: File): Promise<FoodItem | null> {
+  try {
+    // Create a FormData instance to send the image
+    const formData = new FormData();
+    formData.append('image', imageFile);
+
+    toast.info("Scanning for barcode...");
+
+    try {
+      // Send the image to our backend API for barcode scanning
+      const response = await fetch(BARCODE_ENDPOINT, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        if (response.status === 400) {
+          toast.error("No barcode found in the image");
+          return null;
+        }
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // Process the barcode result from the Open Food Facts API
+      return {
+        id: uuidv4(),
+        name: result.product_name || "Unknown Product",
+        portion: "100g",
+        calories: result.nutrition_facts?.calories || 100,
+        protein: result.nutrition_facts?.protein || 0,
+        carbs: result.nutrition_facts?.carbohydrates || 0,
+        fat: result.nutrition_facts?.fat || 0,
+        image: undefined
+      };
+    } catch (error) {
+      console.error('Backend API error:', error);
+      
+      // Fallback to mock implementation if the server is not available
+      toast.error("Couldn't connect to the backend server. Using fallback mode.");
+      return fallbackScanBarcodeFromImage(imageFile);
+    }
+  } catch (error) {
+    console.error('Error scanning barcode:', error);
+    throw new Error('Failed to scan barcode');
+  }
+}
+
+// Fallback implementations for when the backend is not available
+
+function fallbackAnalyzeFoodFromImage(imageFile: File): Promise<{
+  detectedItems: FoodItem[];
+  aiSummary: string;
+}> {
+  return new Promise((resolve) => {
     // Mock the AI prediction response
     const mockPredictions = simulateAIPrediction();
     
@@ -276,25 +399,12 @@ export async function analyzeFoodFromImage(imageFile: File): Promise<{
       ? `I detected ${detectedItems.length} item${detectedItems.length > 1 ? 's' : ''}: ${itemNames}. This meal contains approximately ${totalCalories} calories.`
       : "I couldn't identify any food items in this image. Please try again with a clearer photo.";
 
-    return { detectedItems, aiSummary };
-  } catch (error) {
-    console.error('Error analyzing food image:', error);
-    throw new Error('Failed to analyze food image');
-  }
+    resolve({ detectedItems, aiSummary });
+  });
 }
 
-/**
- * Scan barcode from image and get product information
- */
-export async function scanBarcodeFromImage(imageFile: File): Promise<FoodItem | null> {
-  try {
-    // Create a FormData instance to send the image
-    const formData = new FormData();
-    formData.append('image', imageFile);
-
-    // In a real app, we would send this to our backend for barcode processing
-    // For this implementation, we'll simulate the response
-    
+function fallbackScanBarcodeFromImage(imageFile: File): Promise<FoodItem | null> {
+  return new Promise((resolve) => {
     // In 70% of cases, successfully detect a barcode
     if (Math.random() > 0.3) {
       // Mock barcode data from Open Food Facts API
@@ -309,7 +419,7 @@ export async function scanBarcodeFromImage(imageFile: File): Promise<FoodItem | 
         barcode: "5901234123457"
       };
       
-      return {
+      resolve({
         id: uuidv4(),
         name: mockProduct.product_name,
         portion: "150g",
@@ -318,19 +428,16 @@ export async function scanBarcodeFromImage(imageFile: File): Promise<FoodItem | 
         carbs: mockProduct.nutrition_facts.carbohydrates,
         fat: mockProduct.nutrition_facts.fat,
         image: undefined
-      };
+      });
     } else {
       // No barcode detected
       toast.error("No barcode found in the image");
-      return null;
+      resolve(null);
     }
-  } catch (error) {
-    console.error('Error scanning barcode:', error);
-    throw new Error('Failed to scan barcode');
-  }
+  });
 }
 
-// Helper function to simulate AI prediction
+// Helper function to simulate AI prediction (used in fallback mode)
 function simulateAIPrediction() {
   // List of possible foods from our database
   const possibleFoods = Object.keys(NUTRITION_DB);
