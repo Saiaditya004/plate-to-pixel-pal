@@ -1,48 +1,37 @@
 
 import { FoodItem } from '@/types';
-import { detectFoodsFromImage } from './mockData';
+import { analyzeFoodFromImage, scanBarcodeFromImage } from './foodRecognitionService';
 
-// This would connect to a real AI service in production
+// This service coordinates different AI/ML functions for food analysis
 export async function analyzeFoodImage(imageFile: File): Promise<{
   detectedItems: FoodItem[];
   aiSummary: string;
 }> {
   try {
-    // Convert the image file to a data URL
-    const imageUrl = await fileToDataUrl(imageFile);
+    // First, try to analyze the food using our image recognition
+    const result = await analyzeFoodFromImage(imageFile);
     
-    // Call the mock detection function (would be a real AI API in production)
-    const detectedItems = await detectFoodsFromImage(imageUrl);
-    
-    // Generate a summary of the detected food items
-    let aiSummary = "";
-    
-    if (detectedItems.length > 0) {
-      const itemNames = detectedItems.map(item => item.name).join(", ");
-      const totalCalories = detectedItems.reduce((sum, item) => sum + item.calories, 0);
+    // If no items detected, try scanning for a barcode
+    if (result.detectedItems.length === 0) {
+      const barcodeResult = await scanBarcodeFromImage(imageFile);
       
-      aiSummary = `I detected ${detectedItems.length} item${detectedItems.length > 1 ? 's' : ''}: ${itemNames}. ` +
-        `This meal contains approximately ${totalCalories} calories. ` +
-        getHealthTip(detectedItems);
-    } else {
-      aiSummary = "I couldn't identify any food items in this image. Please try again with a clearer photo.";
+      // If barcode scan successful, add it to detected items
+      if (barcodeResult) {
+        result.detectedItems = [barcodeResult];
+        result.aiSummary = `I detected a barcode for ${barcodeResult.name}. This item contains approximately ${barcodeResult.calories} calories.`;
+      }
     }
     
-    return { detectedItems, aiSummary };
+    // Add health tip to the summary
+    if (result.detectedItems.length > 0) {
+      result.aiSummary += ' ' + getHealthTip(result.detectedItems);
+    }
+    
+    return result;
   } catch (error) {
     console.error('Error analyzing food image:', error);
     throw new Error('Failed to analyze food image');
   }
-}
-
-// Helper function to convert a file to a data URL
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 // Generate a health tip based on the detected food items

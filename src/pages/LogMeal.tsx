@@ -18,12 +18,13 @@ import {
   CardTitle 
 } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera, Upload, ArrowLeft, Trash2, Plus, Info } from 'lucide-react';
+import { Camera, Upload, ArrowLeft, Trash2, Plus, Info, Scan } from 'lucide-react';
 import { useUser } from '@/context/UserContext';
 import { toast } from 'sonner';
 import { analyzeFoodImage } from '@/services/aiService';
 import { FoodItem, MealEntry } from '@/types';
 import FoodItemCard from '@/components/FoodItemCard';
+import { Progress } from '@/components/ui/progress';
 
 const LogMeal: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -32,6 +33,7 @@ const LogMeal: React.FC = () => {
   const navigate = useNavigate();
   const { user, addMeal } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
   
   const [mealType, setMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack'>(defaultMealType);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -40,6 +42,7 @@ const LogMeal: React.FC = () => {
   const [aiSummary, setAiSummary] = useState<string>("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
   
   const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -58,24 +61,72 @@ const LogMeal: React.FC = () => {
     }
   };
   
-  const handleAnalyzeImage = async () => {
+  const handleBarcodeCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      
+      const reader = new FileReader();
+      reader.onload = () => {
+        setSelectedImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      
+      // Reset previous analysis
+      setDetectedItems([]);
+      setAiSummary("");
+      
+      // Automatically start barcode scanning
+      toast.info("Scanning for barcode...");
+      handleAnalyzeImage(true);
+    }
+  };
+  
+  const handleAnalyzeImage = async (isBarcodeMode = false) => {
     if (!imageFile) {
       toast.error('Please select an image first');
       return;
     }
     
     setIsAnalyzing(true);
+    setAnalysisProgress(0);
+    
+    // Simulate progress
+    const progressInterval = setInterval(() => {
+      setAnalysisProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return prev;
+        }
+        return prev + 10;
+      });
+    }, 300);
     
     try {
+      if (isBarcodeMode) {
+        toast.info("Looking for barcodes in the image...");
+      }
+      
       const result = await analyzeFoodImage(imageFile);
       setDetectedItems(result.detectedItems);
       setAiSummary(result.aiSummary);
-      toast.success('Food analysis complete!');
+      
+      if (result.detectedItems.length > 0) {
+        toast.success('Analysis complete!');
+      } else {
+        toast.warning('No food items detected. Try another image or add items manually.');
+      }
     } catch (error) {
       console.error('Error analyzing image:', error);
       toast.error('Failed to analyze image. Please try again.');
     } finally {
-      setIsAnalyzing(false);
+      clearInterval(progressInterval);
+      setAnalysisProgress(100);
+      
+      // Delay hiding the progress bar to show completion
+      setTimeout(() => {
+        setIsAnalyzing(false);
+      }, 500);
     }
   };
   
@@ -189,7 +240,7 @@ const LogMeal: React.FC = () => {
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-3 gap-2 mb-4">
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col justify-center items-center"
@@ -206,6 +257,14 @@ const LogMeal: React.FC = () => {
                   <Upload size={24} className="mb-2" />
                   <span className="text-sm">Upload Image</span>
                 </Button>
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col justify-center items-center"
+                  onClick={() => barcodeInputRef.current?.click()}
+                >
+                  <Scan size={24} className="mb-2" />
+                  <span className="text-sm">Scan Barcode</span>
+                </Button>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -214,23 +273,30 @@ const LogMeal: React.FC = () => {
                   className="hidden"
                   onChange={handleImageCapture}
                 />
+                <input
+                  type="file"
+                  ref={barcodeInputRef}
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleBarcodeCapture}
+                />
               </div>
             )}
             
-            {selectedImage && (
+            {isAnalyzing && (
+              <div className="mb-4">
+                <p className="text-sm text-gray-500 mb-2">Analyzing image...</p>
+                <Progress value={analysisProgress} className="h-2" />
+              </div>
+            )}
+            
+            {selectedImage && !isAnalyzing && (
               <Button
                 className="w-full"
-                disabled={isAnalyzing}
-                onClick={handleAnalyzeImage}
+                onClick={() => handleAnalyzeImage()}
               >
-                {isAnalyzing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Analyzing...
-                  </>
-                ) : (
-                  'Analyze Image with AI'
-                )}
+                Analyze Image with AI
               </Button>
             )}
           </div>
