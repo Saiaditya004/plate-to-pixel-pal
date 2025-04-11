@@ -1,4 +1,3 @@
-
 import { FoodItem } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
@@ -234,7 +233,8 @@ function getNutritionInfo(foodItem: string) {
   return CASE_INSENSITIVE_DB[foodItem.toLowerCase()] || null;
 }
 
-// Backend API endpoints
+// Backend API endpoints - MAKE SURE TO UPDATE THIS URL TO MATCH YOUR FLASK SERVER
+// You can change this to the actual URL of your Flask server
 const API_BASE_URL = 'http://localhost:5000'; // Update this if your Flask server runs on a different port
 const PREDICT_ENDPOINT = `${API_BASE_URL}/predict`;
 const BARCODE_ENDPOINT = `${API_BASE_URL}/upload`;
